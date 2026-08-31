@@ -743,6 +743,31 @@ textarea {
 
 }
 
+
+/* ===== TAGS ===== */
+.tags-view{position:absolute;inset:0 0 64px;background:#fff;display:none;flex-direction:column;z-index:20}
+.tags-view.open{display:flex}
+.tags-header{padding:18px;text-align:center;font-size:17px;font-weight:600;border-bottom:1px solid #eee}
+.tags-list{flex:1;overflow:auto;padding:8px 18px}
+.tag-row{display:flex;align-items:center;padding:15px 0;border-bottom:1px solid #eee}
+.tag-name{flex:1;cursor:pointer;font-weight:500}
+.tag-count{font-size:12px;color:#999;margin-right:8px}
+.tag-delete{border:0;background:none;color:#999;font-size:20px;padding:4px 8px}
+.add-tag{display:flex;gap:8px;padding:12px 16px;border-top:1px solid #eee}
+.add-tag input,.tag-new input{flex:1;min-width:0;border:0;outline:0;background:#f1f1f3;border-radius:20px;padding:10px 14px;font:inherit}
+.add-tag button,.tag-new button{border:0;background:#111;color:#fff;border-radius:20px;padding:0 16px}
+.tag-sheet{position:fixed;inset:0;z-index:100;display:none;align-items:flex-end;background:rgba(0,0,0,.35);backdrop-filter:blur(7px)}
+.tag-sheet.open{display:flex}
+.tag-sheet-panel{width:100%;max-height:75vh;overflow:auto;background:#fff;border-radius:24px 24px 0 0;padding:22px}
+.tag-sheet-title{font-size:20px;font-weight:700;margin-bottom:12px}
+.tag-option{display:flex;align-items:center;gap:10px;padding:11px 0}
+.tag-option input{width:18px;height:18px}
+.tag-new{display:flex;gap:8px;margin-top:10px}
+.tag-new button{background:#eee;color:#111}
+.tag-sheet-actions{display:flex;gap:8px;margin-top:18px}
+.tag-sheet-actions button{flex:1;border:0;border-radius:14px;padding:13px;font:inherit}
+#saveTags{background:#111;color:#fff}
+
 </style>
 
 </head>
@@ -870,6 +895,7 @@ textarea {
 
         <button class="active" id="diaryTab">Diary</button>
 
+        <button id="tagsTab">Tags</button>
         <button id="settingsTab">Settings</button>
 
     </nav>
@@ -884,6 +910,33 @@ textarea {
 
 
 
+
+
+<!-- TAGS VIEW -->
+<div id="tagsView" class="tags-view">
+  <div class="tags-header">Tags</div>
+  <div id="tagsList" class="tags-list"></div>
+  <div class="add-tag">
+    <input id="newTagInput" placeholder="새 태그">
+    <button id="addTagButton">추가</button>
+  </div>
+</div>
+
+<!-- TAG SHEET -->
+<div id="tagSheet" class="tag-sheet">
+  <div class="tag-sheet-panel">
+    <div class="tag-sheet-title">태그 설정</div>
+    <div id="tagOptions"></div>
+    <div class="tag-new">
+      <input id="sheetNewTagInput" placeholder="새 태그">
+      <button id="sheetAddTagButton">추가</button>
+    </div>
+    <div class="tag-sheet-actions">
+      <button id="cancelTags">취소</button>
+      <button id="saveTags">완료</button>
+    </div>
+  </div>
+</div>
 
 <!-- 설정 -->
 
@@ -2701,6 +2754,141 @@ renderMessages();
 
 
 
+
+
+/* ===== TAG SYSTEM ===== */
+const TAGS_KEY = "chat_diary_tags";
+let chatTags = JSON.parse(localStorage.getItem(TAGS_KEY) || "[]");
+let tagFilter = null;
+let tagEditingId = null;
+let tagSelection = [];
+
+function saveChatTags(){ localStorage.setItem(TAGS_KEY, JSON.stringify(chatTags)); }
+
+function getMessagesArray(){
+  if (typeof messages !== "undefined" && Array.isArray(messages)) return messages;
+  return [];
+}
+
+function ensureTags(){
+  getMessagesArray().forEach(m => { if(!Array.isArray(m.tags)) m.tags=[]; });
+}
+
+function persistMessages(){
+  if(typeof saveMessages === "function") saveMessages();
+  else localStorage.setItem("chat_diary_messages", JSON.stringify(getMessagesArray()));
+}
+
+function renderTagList(){
+  const box=document.getElementById("tagsList");
+  if(!box) return;
+  box.innerHTML="";
+  if(!chatTags.length){
+    box.innerHTML='<div style="padding:35px 0;text-align:center;color:#888">아직 태그가 없어요</div>';
+    return;
+  }
+  chatTags.forEach(tag=>{
+    const row=document.createElement("div"); row.className="tag-row";
+    const name=document.createElement("div"); name.className="tag-name"; name.textContent="#"+tag;
+    name.onclick=()=>{ tagFilter=tag; showDiaryWithFilter(); };
+    const count=document.createElement("div"); count.className="tag-count";
+    count.textContent=getMessagesArray().filter(m=>Array.isArray(m.tags)&&m.tags.includes(tag)).length;
+    const del=document.createElement("button"); del.className="tag-delete"; del.textContent="×";
+    del.onclick=ev=>{
+      ev.stopPropagation();
+      if(!confirm("#"+tag+" 태그를 삭제할까요?")) return;
+      chatTags=chatTags.filter(t=>t!==tag);
+      getMessagesArray().forEach(m=>{if(Array.isArray(m.tags))m.tags=m.tags.filter(t=>t!==tag)});
+      saveChatTags(); persistMessages(); renderTagList();
+      if(typeof renderMessages==="function")renderMessages();
+    };
+    row.append(name,count,del); box.appendChild(row);
+  });
+}
+
+function openTags(){
+  tagFilter=null;
+  document.getElementById("tagsView").classList.add("open");
+  document.getElementById("diaryTab").classList.remove("active");
+  document.getElementById("tagsTab").classList.add("active");
+  document.getElementById("settingsTab").classList.remove("active");
+  const search=document.getElementById("search"); if(search)search.style.display="none";
+  const msgs=document.getElementById("messages"); if(msgs)msgs.style.display="none";
+  const input=document.querySelector(".input-area"); if(input)input.style.display="none";
+  renderTagList();
+}
+function showDiaryWithFilter(){
+  document.getElementById("tagsView").classList.remove("open");
+  document.getElementById("diaryTab").classList.add("active");
+  document.getElementById("tagsTab").classList.remove("active");
+  document.getElementById("settingsTab").classList.remove("active");
+  const search=document.getElementById("search"); if(search)search.style.display="";
+  const msgs=document.getElementById("messages"); if(msgs)msgs.style.display="";
+  const input=document.querySelector(".input-area"); if(input)input.style.display="";
+  if(typeof renderMessages==="function")renderMessages();
+}
+
+function openTagSheetFor(id){
+  ensureTags(); tagEditingId=id;
+  const m=getMessagesArray().find(x=>String(x.id)===String(id));
+  tagSelection=m&&Array.isArray(m.tags)?[...m.tags]:[];
+  renderTagOptions();
+  document.getElementById("tagSheet").classList.add("open");
+}
+function renderTagOptions(){
+  const box=document.getElementById("tagOptions"); box.innerHTML="";
+  if(!chatTags.length){
+    box.innerHTML='<div style="padding:10px 0;color:#888">먼저 새 태그를 추가해 주세요.</div>';
+    return;
+  }
+  chatTags.forEach(tag=>{
+    const label=document.createElement("label"); label.className="tag-option";
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=tagSelection.includes(tag);
+    cb.onchange=()=>{ if(cb.checked&&!tagSelection.includes(tag))tagSelection.push(tag); if(!cb.checked)tagSelection=tagSelection.filter(t=>t!==tag); };
+    const span=document.createElement("span"); span.textContent="#"+tag;
+    label.append(cb,span); box.appendChild(label);
+  });
+}
+function closeTagSheet(){document.getElementById("tagSheet").classList.remove("open");tagEditingId=null;tagSelection=[];}
+
+document.getElementById("tagsTab").onclick=openTags;
+document.getElementById("addTagButton").onclick=()=>{
+  const i=document.getElementById("newTagInput"), n=i.value.trim();
+  if(n&&!chatTags.includes(n)){chatTags.push(n);saveChatTags();renderTagList();} i.value="";
+};
+document.getElementById("newTagInput").onkeydown=e=>{if(e.key==="Enter")document.getElementById("addTagButton").click()};
+document.getElementById("sheetAddTagButton").onclick=()=>{
+  const i=document.getElementById("sheetNewTagInput"),n=i.value.trim(); if(!n)return;
+  if(!chatTags.includes(n))chatTags.push(n); if(!tagSelection.includes(n))tagSelection.push(n);
+  saveChatTags();i.value="";renderTagOptions();
+};
+document.getElementById("cancelTags").onclick=closeTagSheet;
+document.getElementById("saveTags").onclick=()=>{
+  const m=getMessagesArray().find(x=>String(x.id)===String(tagEditingId));
+  if(m){m.tags=[...tagSelection];persistMessages();renderTagList();if(typeof renderMessages==="function")renderMessages();}
+  closeTagSheet();
+};
+document.getElementById("tagSheet").onclick=e=>{if(e.target.id==="tagSheet")closeTagSheet()};
+
+/* 길게 누르기: 이벤트 위임으로 기존 말풍선 구조와 무관하게 작동 */
+document.addEventListener("pointerdown",e=>{
+  const target=e.target.closest(".message, .bubble, .message-bubble, [class*='bubble']");
+  if(!target || target.closest("#tagSheet") || target.closest("#tagsView"))return;
+  const id=target.dataset.id || target.getAttribute("data-message-id");
+  if(id==null)return;
+  target.__tagPressTimer=setTimeout(()=>openTagSheetFor(id),600);
+});
+document.addEventListener("pointerup",e=>{
+  const target=e.target.closest(".message, .bubble, .message-bubble, [class*='bubble']");
+  if(target&&target.__tagPressTimer){clearTimeout(target.__tagPressTimer);target.__tagPressTimer=null;}
+});
+document.addEventListener("pointercancel",e=>{
+  const target=e.target.closest(".message, .bubble, .message-bubble, [class*='bubble']");
+  if(target&&target.__tagPressTimer){clearTimeout(target.__tagPressTimer);target.__tagPressTimer=null;}
+});
+
+ensureTags();
+renderTagList();
 
 </script>
 
